@@ -1,17 +1,48 @@
+# === 环境变量（含敏感信息） ===
 .env
 .env.local
+.env.*.local
 *.key
 secrets.json
 
-.idea/
+# === Python ===
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# === 缓存与日志 ===
 .rag_cache/
 agent_logs/
-*.log
 logs/
+*.log
 
+# === 数据卷 ===
 volumes/
-*.bak
 
+# === 备份文件 ===
+*.bak
+*.tmp
+
+# === Office 临时文件 ===
+~$*
+
+# === 测试输出 ===
+resp.json
+eval/results/
+
+# === 系统文件 ===
 .DS_Store
+Thumbs.db
