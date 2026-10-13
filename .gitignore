@@ -1,0 +1,17 @@
+.env
+.env.local
+*.key
+secrets.json
+
+.idea/
+__pycache__/
+*.pyc
+.rag_cache/
+agent_logs/
+*.log
+logs/
+
+volumes/
+*.bak
+
+.DS_Store
