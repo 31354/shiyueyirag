@@ -1,36 +1,36 @@
-\# shiyueyirag
+# shiyueyirag
 
 
 
-一个基于 \*\*向量数据库（Milvus）+ RAG\*\* 的智能问答系统。将文档切分、向量化后存入 Milvus，用户提问时检索相关片段，交给大模型生成回答。
+一个基于 **向量数据库（Milvus）+ RAG** 的智能问答系统。将文档切分、向量化后存入 Milvus，用户提问时检索相关片段，交给大模型生成回答。
 
 
 
-\## 功能特性
+## 功能特性
 
 
 
-\- 📄 \*\*文档入库\*\*：解析 PDF / DOCX / Markdown，切分后向量化存入 Milvus
+- 📄 **文档入库**：解析 PDF / DOCX / Markdown，切分后向量化存入 Milvus
 
-\- 🔍 \*\*语义检索\*\*：基于向量相似度召回相关文档片段
+- 🔍 **语义检索**：基于向量相似度召回相关文档片段
 
-\- 🤖 \*\*RAG 问答\*\*：检索结果 + 大模型生成，回答有据可依
+- 🤖 **RAG 问答**：检索结果 + 大模型生成，回答有据可依
 
-\- 🌐 \*\*API 服务\*\*：提供 HTTP 接口，方便接入前端或其他系统
+- 🌐 **API 服务**：提供 HTTP 接口，方便接入前端或其他系统
 
-\- 💬 \*\*对话页面\*\*：内置 `chat.html` 可直接测试
+- 💬 **对话页面**：内置 `chat.html` 可直接测试
 
-\- 📊 \*\*效果评估\*\*：内置评估脚本，量化检索与问答质量
+- 📊 **效果评估**：内置评估脚本，量化检索与问答质量
 
-\- 🐳 \*\*容器化部署\*\*：Docker Compose 一键拉起 Milvus / etcd / MinIO
-
-
-
-\## 工作流程
+- 🐳 **容器化部署**：Docker Compose 一键拉起 Milvus / etcd / MinIO
 
 
 
-\## 项目结构
+## 工作流程
+
+
+
+## 项目结构
 
 shiyueyirag/
 
@@ -52,7 +52,7 @@ shiyueyirag/
 
 ├── eval.py # 评估脚本
 
-├── eval\_agent.py # Agent 评估
+├── eval_agent.py # Agent 评估
 
 ├── demo.py # 示例
 
@@ -66,23 +66,23 @@ shiyueyirag/
 
 
 
-\## 环境要求
+## 环境要求
 
 
 
-\- Python 3.10+
+- Python 3.10+
 
-\- Docker \& Docker Compose（用于 Milvus）
+- Docker \& Docker Compose（用于 Milvus）
 
-\- 智谱 API Key（或其他 LLM 服务）
-
-
-
-\## 快速开始
+- 智谱 API Key（或其他 LLM 服务）
 
 
 
-\### 1. 克隆项目
+## 快速开始
+
+
+
+### 1. 克隆项目
 
 
 
@@ -108,7 +108,7 @@ cp .env.example .env
 
 .env
 
-ZHIPU\_API\_KEY=your\_key\_here
+ZHIPU_API_KEY=your_key_here
 
 
 
@@ -120,13 +120,13 @@ docker compose up -d
 
 运行
 
-\# 命令行运行
+# 命令行运行
 
 python main.py
 
 
 
-\# 或启动 API 服务
+# 或启动 API 服务
 
 python api.py
 
@@ -134,5 +134,5 @@ python api.py
 
 评估python eval.py
 
-python eval\_agent.py
+python eval_agent.py
 
