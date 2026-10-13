@@ -8,7 +8,6 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Docker](https://img.shields.io/badge/docker-compose-blue)
 
-
 ## Demo
 
 ![demo](docs/images/demo.jpg)
@@ -283,19 +282,17 @@ python main.py
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"question": "公司的报销流程是什么？"}'
+  -d '{"question": "什么是向量数据库？"}'
 ```
 
 返回示例：
 
 ```json
 {
-  "answer": "根据文档，报销流程分为三步……",
+  "answer": "向量数据库是一种专门用于存储、索引和检索高维向量的数据库系统……",
   "sources": [
-    {"file": "制度手册.pdf", "score": 0.89},
-    {"file": "财务指南.md", "score": 0.82}
-  ],
-  "steps": ["rag_search", "generate"]
+    {"file": "shiyueyi.docx", "score": 0.89}
+  ]
 }
 ```
 
@@ -317,7 +314,6 @@ python eval.py
 | Recall@3 | Top-3 结果中是否包含正确答案 |
 | Recall@5 | Top-5 结果中是否包含正确答案 |
 
-
 在 20 条测试 query 上的实测结果：
 
 | 指标 | BM25 混合 | +Rerank |
@@ -325,7 +321,6 @@ python eval.py
 | Recall@1 | 0.650 | 0.775 |
 | Recall@3 | 0.975 | 0.950 |
 | Recall@5 | 1.000 | 1.000 |
-
 
 Rerank 显著提升 Recall@1（0.650 → 0.775），BM25 混合检索本身 Recall@5 已达满分。
 
@@ -430,15 +425,15 @@ python eval.py
 
 4 条样本量太小，每条 query 的权重高达 0.25，指标波动大。扩到 20 条后，每条权重降到 0.05，结果更稳定、更接近真实水平。
 
-两组数据对比：
+两组数据对比（+Rerank）：
 
-| 指标 | 4 条（Rerank） | 20 条（Rerank） |
+| 指标 | 4 条 | 20 条 |
 |---|---|---|
 | Recall@1 | 0.750 | 0.775 |
 | Recall@3 | 1.000 | 0.950 |
 | Recall@5 | 1.000 | 1.000 |
 
-R@3 略微下降是因为新增的 16 条 query 里有更难的对比题（如 Qdrant vs pgvector），不代表检索变差。
+Recall@3 略微下降是因为新增的 16 条 query 里有更难的对比题（如 Qdrant vs pgvector），不代表检索变差。整体看，20 条的结果更可信。
 
 ## 技术栈
 
