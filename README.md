@@ -8,6 +8,13 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Docker](https://img.shields.io/badge/docker-compose-blue)
 
+
+## Demo
+
+![demo](docs/images/demo.gif)
+
+> 上传文档 → 提问 → 带来源的回答
+
 ## 功能特性
 
 - 📄 **文档入库**：解析 PDF / DOCX / Markdown，切分后向量化存入 Milvus
