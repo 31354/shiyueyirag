@@ -11,7 +11,7 @@
 
 ## Demo
 
-![demo](docs/images/demo.gif)
+![demo](docs/images/demo.jpg)
 
 > 上传文档 → 提问 → 带来源的回答
 
