@@ -9,12 +9,11 @@ import rag
 rag.init()
 
 eval_set = [
-    {"query": "什么是向量数据库？", "true_indices": {0}},
-    {"query": "FAISS 和 Milvus 有什么区别？", "true_indices": {1, 3}},
-    {"query": "向量数据库选型看哪些维度？", "true_indices": {6}},
-    {"query": "向量数据库有哪些常见误区？", "true_indices": {7}},
+    {"query": "什么是向量数据库？", "true_indices": {1}},
+    {"query": "FAISS 和 Milvus 有什么区别？", "true_indices": {3, 5}},
+    {"query": "向量数据库选型看哪些维度？", "true_indices": {8}},
+    {"query": "向量数据库有哪些常见误区？", "true_indices": {9}},
 ]
-
 print("\n标准答案：")
 for item in eval_set:
     print(f"  [{item['query']}] -> chunk {sorted(item['true_indices'])}")

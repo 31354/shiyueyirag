@@ -350,6 +350,76 @@ python eval_agent.py
 - `agent_metrics.json`：Agent 决策指标
 - `report.md`：可读报告
 
+
+
+## FAQ
+
+### Q1: `eval.py` 的 Recall@1 全是 0，是检索坏了吗？
+
+先别急着怀疑检索。最常见的原因是**评测集里的 `true_indices` 标错了**。
+
+`eval.py` 用 `true_indices` 指定“正确答案在第几个 chunk”，如果标注的 id 和实际 chunk 内容对不上，检索再准也会被判为 0。
+
+排查方法：
+
+```bash
+python -c "
+import rag
+rag.init()
+for i, c in enumerate(rag._chunks):
+    text = c if isinstance(c, str) else c.get('text', str(c))
+    print(f'--- chunk[{i}] ---')
+    print(text[:200])
+"
+```
+
+对照 `eval_set` 里的 `true_indices`，确认每个问题对应的 chunk 内容是否真的相关。改对后 Recall 会立刻改善。
+
+### Q2: 为什么 Rerank 后 Recall@3 反而下降了？
+
+小样本评测（如 4 条 query）波动大，Rerank 模型对中文支持有限时可能把正确答案排后。建议：
+
+- 扩大测试集到 20 条以上
+- 换中文 reranker，如 `BAAI/bge-reranker-v2-m3`
+- 调 `alpha` 权重，让 BM25 与向量检索的配比更合适
+
+### Q3: 改了文档，为什么检索结果没变？
+
+`eval.py` 启动时会检查 Milvus 中是否已有数据，如果已有块会**跳过 embedding**，导致新文档没被入库。
+
+解决方法：清空 Milvus 数据卷后重新入库。
+
+```bash
+docker compose down
+docker volume ls | Select-String milvus
+docker volume rm <milvus数据卷名>
+docker compose up -d
+python eval.py
+```
+
+### Q4: 评测集只有 4 条 query，结果可信吗？
+
+不太可信。4 条样本量太小，指标波动大，`Recall@1` 只能在 0、0.25、0.5、0.75、1.0 几档之间跳。
+
+建议扩充到 20–30 条，覆盖不同类型问题（定义、对比、选型、误区等），指标才有参考价值。
+
+### Q5: `Recall@1` 对多答案问题为什么算不准？
+
+当一个问题对应多个 chunk（如 `FAISS 和 Milvus 有什么区别？` 对应 `chunk[3]` 和 `chunk[5]`），Top-1 只能命中一个，按命中比例算，R@1 最多 0.5。
+
+这是评测算法的固有局限，不是检索问题。看 `Recall@3` 或 `Recall@5` 更合理。
+
+### Q6: 启动时提示 `Failed to find CUDA` 怎么办？
+
+这是警告，不是错误。如果没有 NVIDIA GPU 或没装 CUDA Toolkit，Rerank 模型会在 CPU 上运行，速度慢但不影响功能。
+
+想消除警告：
+
+- 安装 CUDA Toolkit 并设置 `CUDA_HOME` 环境变量
+- 或忽略它，评测仍能正常跑完
+
+
+
 ## 技术栈
 
 | 层级 | 技术 |
