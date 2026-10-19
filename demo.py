@@ -163,11 +163,7 @@ if prompt := st.chat_input("请输入你的问题（例如：对比 FAISS 和 Mi
 
             status_container.update(label="✅ 多 Agent 协作完成", state="complete", expanded=False)
 
-            display_text = ""
-            for char in final_answer:
-                display_text += char
-                answer_container.markdown(display_text + "▌")
-                time.sleep(0.01)
+            # 直接显示最终答案（避免高频 DOM 更新触发前端 bug）
             answer_container.markdown(final_answer)
 
             st.session_state.messages.append({"role": "assistant", "content": final_answer})

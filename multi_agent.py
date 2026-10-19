@@ -51,6 +51,12 @@ def analyst_node(state: AgentState):
     resp = client.chat.completions.create(model=CHAT_MODEL, messages=[{"role": "user", "content": prompt}])
     expr = resp.choices[0].message.content.strip()
 
+
+    # 🌟 新增：清理大模型可能带出来的中文标点和多余字符
+    if expr != "NONE" and expr:
+        # 把中文逗号、句号替换成英文
+        expr_clean = expr.replace("，", ",").replace("。", ".")
+        
     if expr != "NONE" and expr:
         print(f"  -> 触发计算：{expr}")
         calc_result = execute_tool("calculator", json.dumps({"expression": expr}))
