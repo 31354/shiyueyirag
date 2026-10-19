@@ -1,16 +1,15 @@
-# eval_agent.py —— Agent 端到端行为评测
-# 运行：python eval_agent.py
+# eval_agent.py —— 多 Agent 端到端行为评测
 import os
 import sys
 import io
+import time
 
-# 强制 UTF-8
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-
 os.environ.setdefault("PYTHONUTF8", "1")
 
 from rag import init as rag_init
-from main import run_agent_with_history, SYSTEM_PROMPT
+# 引入你的多 Agent 状态图
+from multi_agent import app as agent_app
 
 rag_init()
 
@@ -25,22 +24,40 @@ cases = [
 ]
 
 passed = 0
+print("开始多 Agent 端到端评测...")
+
 for q, expect_kw in cases:
-    print(f"\n{'='*60}\n问题：{q}")
-    history = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": q},
-    ]
+    print(f"\n{'=' * 60}\n问题：{q}")
+
+    initial_state = {
+        "task": q,
+        "retrieved_docs": "",
+        "calculation": "",
+        "draft_answer": "",
+        "review_passed": False,
+        "revision_count": 0
+    }
+
     try:
-        ans = run_agent_with_history(history, verbose=False)
+        start_time = time.time()
+        # 运行 LangGraph 工作流
+        final_state = agent_app.invoke(initial_state)
+        end_time = time.time()
+
+        ans = final_state.get("draft_answer", "")
+        cost_time = end_time - start_time
+
     except Exception as e:
         print(f"  ❌ 异常：{type(e).__name__}: {e}")
         continue
+
     print(f"回答：{ans}")
+    print(f"耗时：{cost_time:.2f} 秒")
+
     ok = expect_kw in (ans or "")
     if ok:
         passed += 1
     print(f"  {'✅' if ok else '❌'} 期望包含「{expect_kw}」")
 
-print(f"\n{'='*60}")
-print(f"通过 {passed}/{len(cases)}")
+print(f"\n{'=' * 60}")
+print(f"多 Agent 评测完成：通过 {passed}/{len(cases)}")

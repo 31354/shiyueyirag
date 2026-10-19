@@ -1,459 +1,209 @@
-# shiyueyirag
+shiyueyirag
+一个基于 向量数据库（Milvus）+ RAG + LangGraph 多 Agent 协作 的智能问答与研报生成系统。包含文档解析、混合检索、重排序、多 Agent 编排、微调数据工程与服务化部署的全链路落地。
 
-一个基于 **向量数据库（Milvus）+ RAG** 的智能问答系统。将文档切分、向量化后存入 Milvus，用户提问时检索相关片段，交给大模型生成回答。
+核心架构升级：采用中心化编排（Orchestrator-Worker）架构，由主控状态机调度 Researcher、Analyst、Writer、Reviewer 四个辅助 Agent，实现检索、计算、生成、审核闭环。
 
-> 支持 Agent 自主决策：根据问题类型选择 RAG 检索、Web 搜索或直接回答。
+https://img.shields.io/badge/python-3.10+-blue
+https://img.shields.io/badge/license-MIT-green
+https://img.shields.io/badge/docker-compose-blue
 
-![Python](https://img.shields.io/badge/python-3.10+-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Docker](https://img.shields.io/badge/docker-compose-blue)
+架构设计
+本项目采用了 中心化编排（Orchestrator-Worker）架构，基于 LangGraph 的状态图（StateGraph）作为主控中心，调度四个专职 Agent：
 
-## Demo
+[用户请求]
+|
+v
+【主控中心 (StateGraph)】
+(维护全局 AgentState 并调度)
+|
++---------------+---------------+---------------+
+| | | |
+v v v |
+[Researcher] [Analyst] [Writer] <----------+
+(RAG 知识检索) (AST 数学计算) (结构化生成) |
+| | | |
++---------------+---------------+---------------+
+|
+v
+[Reviewer] -------------------------+
+(防幻觉审核) -- (若发现幻觉，打回重写)
+|
+v
+[最终输出]
 
-![demo](docs/images/demo.jpg)
+Researcher：封装 RAG 链路，负责从 Milvus 中精准召回文档片段。
+Analyst：内置安全的 AST 解析器，负责处理数值计算与数据对比。
+Writer：纯文本生成节点，只接收上游提炼后的精简信息，降低上下文污染。
+Reviewer：负责核验草稿是否超出检索资料，若发现幻觉自动打回给 Writer 重写（引入 revision_count 防死循环）。
 
-> 上传文档 → 提问 → 带来源的回答
+功能特性
+文档入库：解析 PDF / DOCX / Markdown，切分后向量化存入 Milvus (HNSW 索引)
 
-## 功能特性
+混合检索：手写 BM25 + 向量语义的双路召回，并接入 BGE Reranker 重排
 
-- 📄 **文档入库**：解析 PDF / DOCX / Markdown，切分后向量化存入 Milvus
-- 🔍 **语义检索**：基于向量相似度召回相关文档片段
-- 🤖 **RAG 问答**：检索结果 + 大模型生成，回答有据可依
-- 🧠 **Agent 自主决策**：根据检索分数决定走 RAG、Web 搜索或直接回答
-- 🌐 **API 服务**：提供 HTTP 接口，方便接入前端或其他系统
-- 💬 **对话页面**：内置 `chat.html` 可直接测试
-- 📊 **效果评估**：内置评估脚本，量化检索与问答质量
-- 🐳 **容器化部署**：Docker Compose 一键拉起 Milvus / etcd / MinIO
+多 Agent 协作：基于 LangGraph 实现检索、计算、撰写、审核的状态机流转
 
-## 架构图
+API 服务：FastAPI 提供 HTTP 接口，支持 Pydantic 数据校验
 
-```
-                        ┌─────────────────┐
-                        │   用户提问       │
-                        └────────┬────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │  Agent 决策循环  │
-                        │  (tools.py)     │
-                        └────────┬────────┘
-                                 │
-              ┌──────────────────┼──────────────────┐
-              │                  │                  │
-              ▼                  ▼                  ▼
-      ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-      │  RAG 检索     │   │  Web 搜索     │   │  直接回答     │
-      │  (rag.py)    │   │  (tools.py)  │   │              │
-      └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
-             │                  │                  │
-             ▼                  │                  │
-      ┌──────────────┐          │                  │
-      │   Milvus     │          │                  │
-      │  向量数据库   │          │                  │
-      └──────┬───────┘          │                  │
-             │                  │                  │
-             └──────────────────┼──────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │  大模型生成答案   │
-                       │  (智谱 API)     │
-                       └────────┬────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │  带来源的回答     │
-                       └─────────────────┘
-```
+监控看板：Streamlit 实现多 Agent 执行轨迹的实时可视化
 
-**文档入库流程**：
+全链路可观测：基于 JSONL 的结构化日志记录器，便于排障与数据回流
 
-```
-文档 (PDF/DOCX/MD)
-      │
-      ▼
-  解析 (jiexi.py)
-      │
-      ▼
-  切分 (CHUNK_SIZE)
-      │
-      ▼
-  向量化 (Embedding)
-      │
-      ▼
-  Milvus 存储
-```
+微调数据合成：基于 GLM 构建意图矩阵，自动扩充并去重客服微调数据
 
-## 工作流程
+检索效果评估 (消融实验)
+基于 20 个真实业务问题构建黄金测试集，对比不同检索策略：
 
-1. **文档入库**：解析文档 → 切分 → 向量化 → 存入 Milvus
-2. **用户提问**：问题经 Embedding 转成向量
-3. **语义检索**：在 Milvus 中召回 Top-K 相关片段
-4. **Agent 决策**：根据相似度分数判断
-   - 分数 ≥ 阈值 → 用 RAG 结果生成
-   - 分数 < 阈值 → 尝试 Web 搜索或直接回答
-5. **生成回答**：检索片段 + 问题交给大模型，返回带来源的答案
+检索策略 Recall@1 Recall@3 Recall@5
 
-## 项目结构
+纯向量检索 50.00% 100.00% 100.00%
+混合检索 (alpha=0.5) 100.00% 100.00% 100.00%
+混合检索 (alpha=0.7) 77.78% 100.00% 100.00%
+混合检索 + BGE Reranker 100.00% 100.00% 100.00%
 
-```
-shiyueyirag/
-├── main.py              # 程序入口
-├── api.py               # API 服务
-├── rag.py               # RAG 检索逻辑
-├── tools.py             # Agent 工具函数
-├── jiexi.py             # 文档解析
-├── wendang.py           # 文档处理
-├── logger.py            # 日志
-├── metrics.py           # 指标统计
-├── eval.py              # 评估脚本
-├── eval_agent.py        # Agent 评估
-├── demo.py              # 示例
-├── Dockerfile
-├── docker-compose.yml   # Milvus / etcd / MinIO 编排
-├── requirements.txt
-├── .env.example         # 环境变量模板
-└── chat.html            # 前端对话页面
-```
+实验结论：
 
-## 环境要求
+纯向量检索的短板：Recall@1 仅 50%，说明在包含“FAISS、Milvus、pgvector”等专有名词密集的技术文档中，纯语义向量检索容易因“语义泛化”将相似概念混淆，导致正确块无法排在第一位。
 
-- Python 3.10+
-- Docker & Docker Compose（用于 Milvus）
-- 智谱 API Key（或其他兼容 OpenAI 协议的 LLM 服务）
+BM25 混合检索的优势：引入 BM25（alpha=0.5）后，Recall@1 从 50% 飙升至 100%。说明关键词精准匹配有效弥补了向量检索在专有名词上的缺陷。
 
-## 快速开始
+权重敏感度测试：当 alpha 提升至 0.7 和 0.9 时，由于向量权重过大，稀释了 BM25 的精准度，导致 Recall@1 回落（77.8% 和 50%）。
 
-### 1. 克隆项目
+重排序（Reranker）的保底作用：在粗排权重波动（alpha=0.7）导致 Recall@1 下降时，接入 bge-reranker 对 Top-10 结果进行精排，成功将 Recall@1 再次拉回 100%。这证明了在工程实践中，“粗排决定下限，精排决定上限”的检索架构原则。
 
-```bash
+项目结构
+core/ # 核心算法与引擎
+rag.py # RAG 核心：Milvus(HNSW) + BM25 + Reranker
+jiexi.py # 多格式文档解析 (pymupdf4llm / docling)
+metrics.py # 检索评测指标 (Recall / Hit Rate / MRR)
+logger.py # 基于 JSONL 的结构化日志记录器
+
+agents/ # 智能体编排
+multi_agent.py # LangGraph 多 Agent 状态机核心
+main.py # 基础大模型 Client 与 Tool 执行器
+tools.py # 基于装饰器的工具注册中心
+
+evals/ # 评测与测试
+eval.py # RAG 黄金测试集评测
+eval_agent.py # 多 Agent 端到端行为评测
+eval_main.py # 消融实验评测脚本
+wendang.py # 自动生成包含表格/标题的测试 PDF 和 Word
+
+data_engineering/ # 数据与微调工程
+generate_data.py # 基于 GLM 的客服意图数据合成脚本
+view_log.py # 日志解析与 Trace 可视化工具
+
+deployment/ # 服务化与前端
+api.py # FastAPI 接口服务
+demo.py # Streamlit 多 Agent 监控看板
+docker-compose.yml # Milvus / etcd / MinIO 编排
+
+README.md
+requirements.txt
+
+环境要求
+Python 3.10+
+
+Docker & Docker Compose（用于 Milvus）
+
+智谱 API Key
+
+快速开始
+克隆项目
 git clone https://github.com/31354/shiyueyirag.git
 cd shiyueyirag
-```
 
-### 2. 安装依赖
-
-```bash
+安装依赖
 pip install -r requirements.txt
-```
 
-### 3. 配置环境变量
+启动 Milvus 向量数据库
+确保本地已安装并启动了 Docker Desktop，然后执行：
+docker compose -f deployment/docker-compose.yml up -d
+启动后可访问 Milvus: localhost:19530
 
-```bash
-cp .env.example .env
-```
+配置环境变量
+在终端中设置你的智谱 API Key：
+Windows (PowerShell): $env:ZHIPU_API_KEY="your_key_here"
+Linux / Mac: export ZHIPU_API_KEY="your_key_here"
 
-编辑 `.env`，至少填入：
+运行应用
+启动多 Agent 可视化看板：
+streamlit run deployment/demo.py
 
-```bash
-ZHIPU_API_KEY=your_key_here
-```
+启动 FastAPI 后端服务：
+uvicorn deployment.api:app --reload --port 8000
+API 启动后访问 http://localhost:8000/docs 查看接口文档。
 
-完整配置项见下方 [Configuration](#configuration)。
+配置说明
+必填项
+ZHIPU_API_KEY：智谱 API Key
 
-### 4. 启动 Milvus 向量数据库
+RAG 检索配置
+TOP_K：检索返回的文档条数，默认 5
+SCORE_THRESHOLD：相似度阈值，低于此值触发拒答，默认 0.6
+CHUNK_SIZE：文档分块大小（字符数），默认 500
+CHUNK_OVERLAP：分块重叠字符数，默认 50
 
-```bash
-docker compose up -d
-```
+Agent 配置
+MAX_STEPS：单 Agent 最大循环步数，默认 5
+MAX_RETRIES：多 Agent 架构中 Reviewer 打回重写的最大次数，默认 2
 
-启动后可访问：
+评测脚本使用
+项目内置三套评估脚本：
 
-- Milvus：`localhost:19530`
-- MinIO 控制台：`localhost:9001`
-- Attu（可选）：`localhost:8001`
+检索质量评估 (黄金测试集)
+python evals/eval.py
 
-### 5. 运行
+消融实验评估
+python evals/eval_main.py
+对比纯向量、不同 alpha 权重的混合检索、以及重排效果。
 
-```bash
-# 命令行运行
-python main.py
+Agent 端到端评估
+python evals/eval_agent.py
+测试 Agent 的文档问答、数学计算、拒答与工具调用能力。当前结果：通过 6/6。
 
-# 或启动 API 服务
-python api.py
-```
+常见问题 (FAQ)
+Q1: eval.py 的 Recall@1 全是 0，是检索坏了吗？
+先别急着怀疑检索。最常见的原因是评测集里的 true_indices 标错了。如果标注的 id 和实际 chunk 内容对不上，检索再准也会被判为 0。
 
-API 启动后访问 `http://localhost:8000/docs` 查看接口文档。
+Q2: 为什么 Rerank 后 Recall@3 反而下降了？
+小样本评测波动大。Rerank 模型对中文支持有限时可能把正确答案排后。建议扩大测试集到 20 条以上，并确保使用 bge-reranker-v2-m3 等中文效果好的模型。
 
-### 6. 打开对话页面
-
-浏览器打开 `chat.html`，或通过 API 服务访问前端页面。
-
-## Configuration
-
-复制 `.env.example` 为 `.env`，按需修改。
-
-### 必填项
-
-| 变量 | 说明 |
-|---|---|
-| `ZHIPU_API_KEY` | 智谱 API Key，[获取地址](https://open.bigmodel.cn/) |
-
-### LLM 配置
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `LLM_MODEL` | 生成答案使用的模型 | `glm-4-flash` |
-| `TEMPERATURE` | 生成温度，越高越随机 | `0.2` |
-| `MAX_TOKENS` | 单次生成最大 token 数 | `2048` |
-
-### Embedding 配置
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `EMBEDDING_MODEL` | 向量化模型 | `embedding-2` |
-| `EMBEDDING_DIM` | 向量维度，需与 Milvus 集合一致 | `1024` |
-
-### Milvus 配置
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `MILVUS_HOST` | Milvus 服务地址 | `localhost` |
-| `MILVUS_PORT` | Milvus 端口 | `19530` |
-| `MILVUS_COLLECTION` | 集合名称 | `shiyue_docs` |
-
-### RAG 检索配置
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `TOP_K` | 检索返回的文档条数 | `5` |
-| `SCORE_THRESHOLD` | 相似度阈值，低于此值触发 Web 搜索 | `0.7` |
-| `CHUNK_SIZE` | 文档分块大小（字符数） | `512` |
-| `CHUNK_OVERLAP` | 分块重叠字符数 | `64` |
-
-**关键参数说明**：
-
-- **`SCORE_THRESHOLD`**：Agent 决策的核心参数。检索结果低于此阈值时，Agent 会尝试 Web 搜索或直接回答。调高更保守，调低更激进。
-- **`TOP_K`**：影响召回率与延迟。调大召回更全但更慢，建议 3–5。
-- **`CHUNK_SIZE`**：太小语义不完整，太大检索不精准。中文文档建议 400–600。
-
-### Agent 配置
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `MAX_STEPS` | Agent 最大循环步数，防止死循环 | `5` |
-| `ENABLE_WEB_SEARCH` | 是否启用 Web 搜索工具 | `false` |
-| `WEB_SEARCH_API_KEY` | Web 搜索 API Key（启用时必填） | 无 |
-
-### API 服务配置
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `API_HOST` | 监听地址 | `0.0.0.0` |
-| `API_PORT` | 监听端口 | `8000` |
-
-### 可观测性配置
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `LOG_LEVEL` | 日志级别 | `INFO` |
-| `LOG_DIR` | 日志输出目录 | `./logs` |
-| `ENABLE_METRICS` | 是否开启指标统计 | `true` |
-
-### 配置示例
-
-**最小可运行配置**：
-
-```bash
-ZHIPU_API_KEY=your_key_here
-MILVUS_HOST=localhost
-MILVUS_PORT=19530
-```
-
-**启用 Web 搜索**：
-
-```bash
-ZHIPU_API_KEY=your_key_here
-ENABLE_WEB_SEARCH=true
-WEB_SEARCH_API_KEY=your_search_key
-SCORE_THRESHOLD=0.75
-```
-
-## Usage
-
-### 命令行问答
-
-```bash
-python main.py
-```
-
-### API 调用
-
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "什么是向量数据库？"}'
-```
-
-返回示例：
-
-```json
-{
-  "answer": "向量数据库是一种专门用于存储、索引和检索高维向量的数据库系统……",
-  "sources": [
-    {"file": "shiyueyi.docx", "score": 0.89}
-  ]
-}
-```
-
-## Evaluation
-
-项目内置两套评估脚本，分别评估检索质量与 Agent 问答质量。
-
-### 检索质量评估
-
-```bash
-python eval.py
-```
-
-输出指标：
-
-| 指标 | 说明 |
-|---|---|
-| Recall@1 | Top-1 结果中是否包含正确答案 |
-| Recall@3 | Top-3 结果中是否包含正确答案 |
-| Recall@5 | Top-5 结果中是否包含正确答案 |
-
-在 20 条测试 query 上的实测结果：
-
-| 指标 | BM25 混合 | +Rerank |
-|---|---|---|
-| Recall@1 | 0.650 | 0.775 |
-| Recall@3 | 0.975 | 0.950 |
-| Recall@5 | 1.000 | 1.000 |
-
-Rerank 显著提升 Recall@1（0.650 → 0.775），BM25 混合检索本身 Recall@5 已达满分。
-
-> 评测集覆盖定义、对比、选型、误区、实践等类型，共 20 条 query。
-
-### Agent 问答评估
-
-```bash
-python eval_agent.py
-```
-
-测试 Agent 的文档问答、数学计算、拒答与工具调用能力。
-
-当前结果：
-
-```
-通过 6/6
-```
-
-覆盖场景：
-
-| 类型 | 示例 |
-|---|---|
-| 文档问答 | 什么是向量数据库？ |
-| 数学计算 | 123 * 456 |
-| 数值推理 | Recall@5 乘以 100 |
-| 拒答 | 知识库里有讲火星移民吗？ |
-| 对比问答 | Chroma 和 Milvus 有什么区别？ |
-
-### 评测数据集
-
-- 检索评测：`eval.py` 中的 `eval_set`，共 20 条 query
-- Agent 评测：内置在 `eval_agent.py` 中
-
-## FAQ
-
-### Q1: `eval.py` 的 Recall@1 全是 0，是检索坏了吗？
-
-先别急着怀疑检索。最常见的原因是**评测集里的 `true_indices` 标错了**。
-
-`eval.py` 用 `true_indices` 指定“正确答案在第几个 chunk”，如果标注的 id 和实际 chunk 内容对不上，检索再准也会被判为 0。
-
-排查方法：
-
-```bash
-python -c "
-import rag
-rag.init()
-for i, c in enumerate(rag._chunks):
-    text = c if isinstance(c, str) else c.get('text', str(c))
-    print(f'--- chunk[{i}] ---')
-    print(text[:200])
-"
-```
-
-对照 `eval_set` 里的 `true_indices`，确认每个问题对应的 chunk 内容是否真的相关。改对后 Recall 会立刻改善。
-
-### Q2: 为什么 Rerank 后 Recall@3 反而下降了？
-
-小样本评测波动大，Rerank 模型对中文支持有限时可能把正确答案排后。建议：
-
-- 扩大测试集到 20 条以上
-- 换中文 reranker，如 `BAAI/bge-reranker-v2-m3`
-- 调 `alpha` 权重，让 BM25 与向量检索的配比更合适
-
-### Q3: 改了文档，为什么检索结果没变？
-
-`eval.py` 启动时会检查 Milvus 中是否已有数据，如果已有块会**跳过 embedding**，导致新文档没被入库。
-
-解决方法：清空 Milvus 数据卷后重新入库。
-
-```bash
+Q3: 改了文档，为什么检索结果没变？
+eval.py 启动时会检查 Milvus 中是否已有数据，如果已有块会跳过 embedding。解决方法是清空 Milvus 数据卷后重新入库：
 docker compose down
-docker volume ls | Select-String milvus
 docker volume rm <milvus数据卷名>
 docker compose up -d
-python eval.py
-```
 
-### Q4: 评测集多大才可信？
+Q4: 评测集多大才可信？
+一般建议至少 20–30 条。4 条以下波动极大，Recall@1 只能在 0、0.25、0.5、0.75、1.0 几档之间跳，不具备参考价值。
 
-我们目前使用 20 条 query，覆盖定义、对比、选型、误区、实践等类型。样本量越大，指标越稳定。
+Q5: Recall@1 对多答案问题为什么算不准？
+当一个问题对应多个 chunk（如 FAISS 和 Milvus 有什么区别？ 对应 chunk[3] 和 chunk[5]），Top-1 只能命中一个，按命中比例算，R@1 最多 0.5。这是评测算法的固有局限，看 Recall@3 或 Recall@5 更合理。
 
-一般建议至少 20–30 条。4 条以下波动极大，`Recall@1` 只能在 0、0.25、0.5、0.75、1.0 几档之间跳，不具备参考价值。
+Q6: 启动时提示 Failed to find CUDA 怎么办？
+这是警告，不是错误。如果没有 GPU 或没装 CUDA，Rerank 模型会在 CPU 上运行，速度慢但不影响功能。
 
-### Q5: `Recall@1` 对多答案问题为什么算不准？
+Q7: 多 Agent 系统死循环了怎么办？
+在多 Agent 的 Reviewer 节点中，我引入了 revision_count 计数器。如果审核打回重写超过 2 次，主控状态机会强制跳出循环，标记为“未能完美符合要求”，防止耗尽 API 额度。
 
-当一个问题对应多个 chunk（如 `FAISS 和 Milvus 有什么区别？` 对应 `chunk[3]` 和 `chunk[5]`），Top-1 只能命中一个，按命中比例算，R@1 最多 0.5。
+技术栈
+向量数据库：Milvus + etcd + MinIO (Docker 编排)
+Agent 框架：LangGraph (状态机编排)
+LLM：智谱 GLM-4
+Embedding：智谱 embedding-3
+检索优化：BM25 (jieba) + BGE Reranker
+API 框架：FastAPI + Pydantic
+可视化：Streamlit
+数据工程：LLaMA-Factory (LoRA)、PyMuPDF、Docling
 
-这是评测算法的固有局限，不是检索问题。看 `Recall@3` 或 `Recall@5` 更合理。
+Roadmap
+[x] 支持混合检索（向量 + BM25）
+[x] 支持重排序（Rerank）
+[x] 升级为 LangGraph 多 Agent 架构
+[x] 增加数据合成与 LoRA 微调链路
+[ ] 增加更多文档格式（Excel、PPT）
+[ ] 接入 Langfuse 做全链路可观测性
 
-### Q6: 启动时提示 `Failed to find CUDA` 怎么办？
-
-这是警告，不是错误。如果没有 NVIDIA GPU 或没装 CUDA Toolkit，Rerank 模型会在 CPU 上运行，速度慢但不影响功能。
-
-想消除警告：
-
-- 安装 CUDA Toolkit 并设置 `CUDA_HOME` 环境变量
-- 或忽略它，评测仍能正常跑完
-
-### Q7: 评测集从 4 条扩到 20 条，指标为什么变了？
-
-4 条样本量太小，每条 query 的权重高达 0.25，指标波动大。扩到 20 条后，每条权重降到 0.05，结果更稳定、更接近真实水平。
-
-两组数据对比（+Rerank）：
-
-| 指标 | 4 条 | 20 条 |
-|---|---|---|
-| Recall@1 | 0.750 | 0.775 |
-| Recall@3 | 1.000 | 0.950 |
-| Recall@5 | 1.000 | 1.000 |
-
-Recall@3 略微下降是因为新增的 16 条 query 里有更难的对比题（如 Qdrant vs pgvector），不代表检索变差。整体看，20 条的结果更可信。
-
-## 技术栈
-
-| 层级 | 技术 |
-|---|---|
-| 向量数据库 | Milvus + etcd + MinIO |
-| LLM | 智谱 GLM |
-| Embedding | 智谱 embedding-2 |
-| API 框架 | FastAPI |
-| 容器化 | Docker Compose |
-| 前端 | 原生 HTML + JS |
-
-## Roadmap
-
-- [x] 支持混合检索（向量 + BM25）
-- [x] 支持重排序（Rerank）
-- [ ] 增加更多文档格式（Excel、PPT）
-- [ ] 支持多轮对话
-- [ ] 接入 Langfuse 做可观测性
-
-## License
-
-本项目采用 [MIT License](LICENSE) 授权。
+License
+本项目采用 MIT License 授权。

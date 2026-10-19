@@ -1,11 +1,13 @@
+# demo.py —— 多 Agent Streamlit 监控看板
 import streamlit as st
-
+import time
 from rag import init as rag_init
-from main import SYSTEM_PROMPT, run_agent_stream
+# 修改：引入我们的多 Agent 工作流
+from multi_agent import app as agent_app
 
-st.set_page_config(page_title="RAG + Agent Demo", page_icon="🤖")
-st.title("🤖 RAG + Agent Demo")
-st.caption("问关于知识库的问题，或让我做计算")
+st.set_page_config(page_title="RAG + Multi-Agent Demo", page_icon="🤖", layout="wide")
+st.title("🤖 RAG + 多 Agent 协作系统")
+st.caption("采用 LangGraph 编排：Researcher 查资料 -> Analyst 计算 -> Writer 撰写 -> Reviewer 审核")
 
 
 @st.cache_resource
@@ -16,61 +18,80 @@ def _init():
 
 _init()
 
-if "display" not in st.session_state:
-    st.session_state.display = []
-if "history" not in st.session_state:
-    st.session_state.history = [{"role": "system", "content": SYSTEM_PROMPT}]
+# 保持对话历史
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# 显示历史
-for msg in st.session_state.display:
+# 显示历史对话
+for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# 输入
-if q := st.chat_input("输入你的问题…"):
-    st.session_state.display.append({"role": "user", "content": q})
+# 接收输入
+if prompt := st.chat_input("请输入你需要分析的复杂问题..."):
+    # 1. 显示用户输入
+    st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.markdown(q)
+        st.markdown(prompt)
 
-    st.session_state.history.append({"role": "user", "content": q})
-
+    # 2. Agent 处理过程
     with st.chat_message("assistant"):
-        status = st.empty()       # 显示过程
-        answer_box = st.empty()   # 显示答案
+        # 创建一个状态容器，用于实时展示各个 Agent 的工作进度
+        status_container = st.status("🧠 多 Agent 正在协作...", expanded=True)
+        answer_container = st.empty()
 
-        # 收集事件（不用闭包改外部变量，避免黑屏）
-        events = []
+        # 构建初始状态
+        initial_state = {
+            "task": prompt,
+            "retrieved_docs": "",
+            "calculation": "",
+            "draft_answer": "",
+            "review_passed": False,
+            "revision_count": 0
+        }
 
-
-        def on_event(etype, data):
-            events.append((etype, data))
+        final_answer = ""
 
         try:
-            ans = run_agent_stream(st.session_state.history, on_event=on_event)
+            # 使用 astream 流式获取每个节点的执行结果
+            for output in agent_app.stream(initial_state):
+                # output 的键是节点名称，值是节点返回的更新内容
+                for node_name, state_update in output.items():
+                    if node_name == "researcher":
+                        status_container.write("🔍 **[Researcher]** 正在检索知识库并提取关键信息...")
+                    elif node_name == "analyst":
+                        calc = state_update.get("calculation")
+                        if calc:
+                            status_container.write(f"🧮 **[Analyst]** 触发计算：`{calc}`")
+                        else:
+                            status_container.write("🧮 **[Analyst]** 无需数学计算")
+                    elif node_name == "writer":
+                        status_container.write("✍️ **[Writer]** 正在汇总资料，撰写初稿...")
+                    elif node_name == "reviewer":
+                        passed = state_update.get("review_passed")
+                        if passed:
+                            status_container.write("✅ **[Reviewer]** 审核通过，无幻觉产生")
+                        else:
+                            status_container.write(
+                                f"❌ **[Reviewer]** 发现幻觉！打回重写 (第 {state_update.get('revision_count')} 次)")
+
+                    # 记录最终答案
+                    if "draft_answer" in state_update:
+                        final_answer = state_update["draft_answer"]
+
+            status_container.update(label="✅ 多 Agent 协作完成", state="complete", expanded=False)
+
+            # 打字机效果显示最终答案
+            display_text = ""
+            for char in final_answer:
+                display_text += char
+                answer_container.markdown(display_text + "▌")
+                time.sleep(0.01)
+            answer_container.markdown(final_answer)
+
+            # 存入历史记录
+            st.session_state.messages.append({"role": "assistant", "content": final_answer})
+
         except Exception as e:
-            status.empty()
-            ans = f"出错：{type(e).__name__}: {e}"
-            answer_box.error(ans)
-            st.session_state.display.append({"role": "assistant", "content": ans})
-            st.session_state.history.append({"role": "assistant", "content": ans})
-            st.stop()
-
-        # 重放过程事件
-        for etype, data in events:
-            if etype == "turn":
-                status.info(f"🔄 第 {data['turn']} 轮")
-            elif etype == "tool_call":
-                status.info(f"🔧 调用工具：{data['name']}")
-            elif etype == "tool_result":
-                status.info(f"✅ {data['name']} 完成")
-        status.empty()
-
-        # 假流式：逐字打印最终答案
-        full = ""
-        for ch in (ans or ""):
-            full += ch
-            answer_box.markdown(full + "▌")
-        answer_box.markdown(full or "（无回答）")
-
-    st.session_state.display.append({"role": "assistant", "content": ans})
-    st.session_state.history.append({"role": "assistant", "content": ans})
+            status_container.update(label="❌ 运行出错", state="error")
+            st.error(f"发生错误：{type(e).__name__}: {e}")

@@ -1,13 +1,14 @@
-# api.py —— FastAPI 服务入口
+# api.py —— FastAPI 服务入口（多 Agent 升级版）
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from rag import init as rag_init
-from main import run_agent_with_history, SYSTEM_PROMPT
+# 修改 1：引入你的多 Agent 状态图
+from multi_agent import app as agent_app, AgentState
 
-app = FastAPI(title="RAG + Agent API")
+app = FastAPI(title="RAG + Multi-Agent API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,16 +26,29 @@ def startup():
 
 class Query(BaseModel):
     question: str
-    history: Optional[list] = Field(default_factory=list)
 
 
 @app.post("/chat")
 def chat(q: Query):
     try:
-        history = [{"role": "system", "content": SYSTEM_PROMPT}] + q.history
-        history.append({"role": "user", "content": q.question})
-        ans = run_agent_with_history(history, verbose=False)
-        return {"answer": ans}
+        # 修改 2：初始化多 Agent 的全局状态
+        initial_state = {
+            "task": q.question,
+            "retrieved_docs": "",
+            "calculation": "",
+            "draft_answer": "",
+            "review_passed": False,
+            "revision_count": 0
+        }
+
+        # 修改 3：调用 LangGraph 工作流执行任务
+        final_state = agent_app.invoke(initial_state)
+
+        # 修改 4：从最终状态中提取 Writer 生成的草稿返回
+        return {
+            "answer": final_state["draft_answer"],
+            "status": "success"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
 
