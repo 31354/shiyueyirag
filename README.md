@@ -1,5 +1,6 @@
 shiyueyirag
 一个基于 向量数据库（Milvus）+ RAG + LangGraph 多 Agent 协作 的智能问答与研报生成系统。包含文档解析、混合检索、重排序、多 Agent 编排、微调数据工程与服务化部署的全链路落地。
+<img src="images/demo.png" width="800">
 
 核心架构升级：采用中心化编排（Orchestrator-Worker）架构，由主控状态机调度 Researcher、Analyst、Writer、Reviewer 四个辅助 Agent，实现检索、计算、生成、审核闭环。
 
