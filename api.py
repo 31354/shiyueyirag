@@ -3,14 +3,13 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from langgraph.types import Command
 
-# 引入 RAG 初始化 和 多 Agent 状态图
 from rag import init as rag_init
-from multi_agent import app as agent_app, AgentState
+from multi_agent import app as agent_app
 
 app = FastAPI(title="RAG + Multi-Agent API", version="1.0.0")
 
-# 跨域配置，方便前端调用
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,39 +21,73 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup():
-    # 启动时只初始化一次 RAG 向量库，避免每次请求都卡顿
-    rag_init()
+    try:
+        rag_init()
+    except Exception as e:
+        print(f"⚠️ RAG 初始化失败（{type(e).__name__}: {e}），API 将降级运行")
 
 
 class Query(BaseModel):
     question: str
+    thread_id: Optional[str] = "default_user"
+
+
+class ResumeQuery(BaseModel):
+    thread_id: str
+    human_input: str
 
 
 @app.post("/chat")
 def chat(q: Query):
+    config = {"configurable": {"thread_id": q.thread_id}}
+
+    # 自动从 LangGraph 的 MemorySaver 里拿历史
+    past_state = agent_app.get_state(config)
+    chat_history = []
+    if past_state and past_state.values:
+        chat_history = past_state.values.get("chat_history", [])
+
+    initial_state = {
+        "task": q.question,
+        "chat_history": chat_history,
+        "rewritten_query": "",
+        "retrieved_docs": "",
+        "calculation": "",
+        "draft_answer": "",
+        "review_passed": False,
+        "revision_count": 0
+    }
+
     try:
-        # 初始化多 Agent 的全局状态
-        initial_state = {
-            "task": q.question,
-            "retrieved_docs": "",
-            "calculation": "",
-            "draft_answer": "",
-            "review_passed": False,
-            "revision_count": 0
-        }
+        final_state = agent_app.invoke(initial_state, config=config)
+        current_state = agent_app.get_state(config)
 
-        # 调用 LangGraph 状态机执行完整流程
-        final_state = agent_app.invoke(initial_state)
+        # 检查是否触发人工介入
+        if current_state.next and "human_review" in current_state.next:
+            interrupt_data = current_state.tasks[0].interrupts[0].value
+            return {
+                "status": "need_human_review",
+                "message": interrupt_data["message"],
+                "draft": interrupt_data["draft"]
+            }
 
-        # 提取 Writer 最终生成的回答
-        return {
-            "answer": final_state.get("draft_answer", "未生成有效回答"),
-            "status": "success"
-        }
+        return {"status": "success", "answer": final_state.get("draft_answer", "未生成回答")}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"多 Agent 运行失败：{type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/resume")
+def resume_chat(q: ResumeQuery):
+    """处理人工介入后的恢复"""
+    config = {"configurable": {"thread_id": q.thread_id}}
+    try:
+        # 恢复图执行
+        final_state = agent_app.invoke(Command(resume=q.human_input), config=config)
+        return {"status": "success", "answer": final_state.get("draft_answer", "未生成回答")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "agent_type": "multi-agent"}
+    return {"status": "ok"}
